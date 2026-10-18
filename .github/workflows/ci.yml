@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    # OS に依存しないロジック (fuel-usb-core) は Linux で検証する
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: clippy (core)
+        run: cargo clippy --locked -p fuel-usb-core --all-targets -- -D warnings
+      - name: test (core)
+        run: cargo test --locked -p fuel-usb-core
+
+  app:
+    # トレイ・USB の検知・資格情報は Windows 専用なので windows-latest でだけ build する
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy (app)
+        run: cargo clippy --locked -p fuel-usb-uploader --all-targets -- -D warnings
+      - name: build (app, release)
+        run: cargo build --locked --release -p fuel-usb-uploader

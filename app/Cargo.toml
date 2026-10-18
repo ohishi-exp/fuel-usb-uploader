@@ -1,0 +1,32 @@
+[package]
+name = "fuel-usb-uploader"
+description = "USB に挿した UTRAN.CSV を自動でアップロードする Windows 常駐アプリ"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "fuel-usb-uploader"
+path = "src/main.rs"
+
+[dependencies]
+fuel-usb-core = { path = "../core" }
+
+[target.'cfg(windows)'.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+tauri-winrt-notification = "0.8"
+tray-icon = { version = "0.26", default-features = false }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_WindowsAndMessaging",
+] }
+zeroize = "1"
