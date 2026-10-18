@@ -1,0 +1,77 @@
+name: Release
+
+# tag v<x.y.z> (または手動実行) で Windows の exe を build し、WiX v5 で MSI にして GitHub Release に添付する。
+# 署名はしない (社内配布。SmartScreen の警告が出る — README 参照)。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release の tag (例: v0.1.0)。無ければ実行した commit に作られる'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  msi:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from tag
+        id: ver
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # MSI の Version は数字 3 つ (x.y.z) だけ受ける
+          if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::tag は v<x.y.z> の形にしてください: $TAG"
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+          crate="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          if [[ "$version" != "$crate" ]]; then
+            echo "::error::tag ($version) と Cargo.toml の workspace.package.version ($crate) が違います"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build (release)
+        run: cargo build --locked --release -p fuel-usb-uploader
+
+      - name: Install WiX
+        # v5 固定 (v6+ は OSMF の EULA 同意を要求して WIX7015 で落ちる)
+        run: dotnet tool install --global wix --version 5.0.2
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          wix build wix/main.wxs -arch x64 `
+            -d Version=${{ steps.ver.outputs.version }} `
+            -o "dist/fuel-usb-uploader-${{ steps.ver.outputs.version }}-x64.msi"
+          # 添付するのは MSI と sha256 だけ (wix が隣に置く .wixpdb は外す)
+          Remove-Item dist/*.wixpdb -ErrorAction SilentlyContinue
+          Get-ChildItem dist -Filter *.msi | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h" | Out-File -Encoding ascii "$($_.FullName).sha256"
+          }
+          Get-ChildItem dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          fail_on_unmatched_files: true

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  fuel-usb-uploader の MSI (WiX v5。CI は 5.0.2 に固定。v6 以降は EULA の同意を求めて WIX7015 で落ちる)。
+
+    msiexec /i fuel-usb-uploader-x.y.z-x64.msi   (UAC の昇格あり。perMachine)
+      - C:\Program Files\fuel-usb-uploader\fuel-usb-uploader.exe に置く
+      - HKLM\Software\Microsoft\Windows\CurrentVersion\Run に登録 (全ユーザーのログオン時に起動)
+      - スタートメニューに「給油データ USB アップローダー」(終了したあとに起動し直す用)
+
+  ビルドの手順は README.md と .github/workflows/release.yml (repo の根で release build したあと wix build)。
+
+  UpgradeCode は固定 (変えると上書き更新にならず 2 つ入る)。
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="fuel-usb-uploader"
+      Manufacturer="ohishi-exp"
+      Version="$(var.Version)"
+      UpgradeCode="779CFACA-B543-477F-B068-0F70E4E4F1C9"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="より新しいバージョンが既にインストールされています。" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="fuel-usb-uploader" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <!-- File/@Source の相対パスは wix build の cwd 基準なので、wxs の場所から辿る -->
+      <Component>
+        <File Id="AppExe" Source="$(sys.SOURCEFILEDIR)..\target\release\fuel-usb-uploader.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- 全ユーザーのログオン時に起動。Bitness="always64" が無いと WOW6432Node に落ちる -->
+    <ComponentGroup Id="Autorun" Directory="INSTALLFOLDER">
+      <Component Bitness="always64">
+        <RegistryValue Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="fuel-usb-uploader"
+                       Type="string"
+                       Value="&quot;[INSTALLFOLDER]fuel-usb-uploader.exe&quot;"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="StartMenu" Directory="ProgramMenuFolder">
+      <Component Bitness="always64">
+        <Shortcut Id="AppShortcut"
+                  Name="給油データ USB アップローダー"
+                  Target="[INSTALLFOLDER]fuel-usb-uploader.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\ohishi-exp\fuel-usb-uploader"
+                       Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="Autorun" />
+      <ComponentGroupRef Id="StartMenu" />
+    </Feature>
+  </Package>
+</Wix>
