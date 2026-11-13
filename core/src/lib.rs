@@ -10,6 +10,7 @@
 //! - [`message`] — 通知文とログ行
 //! - [`config`] — 設定 (送り先 URL)
 //! - [`credential`] — machine credential の形式の確認
+//! - [`tray_state`] — トレイのアイコンが表す状態 (待機・処理中・取り込み済み・失敗)
 
 pub mod config;
 pub mod credential;
@@ -17,6 +18,7 @@ pub mod drives;
 pub mod message;
 pub mod outcome;
 pub mod retry;
+pub mod tray_state;
 pub mod utran;
 
 use std::time::Duration;

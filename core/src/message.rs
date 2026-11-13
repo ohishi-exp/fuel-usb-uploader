@@ -27,16 +27,32 @@ fn short(s: &str) -> String {
     out
 }
 
-/// 結果の通知文。`drive` は処理したドライブ (`None` は特定のドライブに依らない通知)。
-pub fn notice(drive: Option<char>, outcome: &Outcome) -> Notice {
-    let title = match drive {
+fn title(drive: Option<char>) -> String {
+    match drive {
         Some(d) => format!("給油データ ({}:)", d.to_ascii_uppercase()),
         None => "給油データ".to_string(),
-    };
+    }
+}
+
+/// `UTRAN.CSV` を読み終えた (送信の前) ときの通知。ファイルは全量をメモリに読むので、ここで USB は不要になる。
+pub fn read_done(drive: Option<char>) -> Notice {
+    Notice {
+        title: title(drive),
+        body: "UTRAN.CSV を読み取りました。USB を抜いてかまいません (送信中)".to_string(),
+    }
+}
+
+/// 結果の通知文。`drive` は処理したドライブ (`None` は特定のドライブに依らない通知)。
+///
+/// 送信の失敗は USB を抜いた後に届くので、やり直し方は「USB をもう一度挿す」で書く。
+pub fn notice(drive: Option<char>, outcome: &Outcome) -> Notice {
+    let title = title(drive);
     let body = match outcome {
         Outcome::Imported {
             inserted, skipped, ..
-        } => format!("給油データを取り込みました: 追加 {inserted} 件 / 既存 {skipped} 件"),
+        } => format!(
+            "給油データを取り込みました: 追加 {inserted} 件 / 既存 {skipped} 件。USB は抜いてかまいません"
+        ),
         Outcome::BadCsv {
             error,
             line,
@@ -52,7 +68,7 @@ pub fn notice(drive: Option<char>, outcome: &Outcome) -> Notice {
             format!("UTRAN.CSV の内容を読み取れませんでした{detail}。ファイルを確認してください")
         }
         Outcome::Unauthorized => {
-            "資格情報が正しくありません。トレイから再設定してください".to_string()
+            "資格情報が正しくありません。トレイから再設定し、USB をもう一度挿してください".to_string()
         }
         Outcome::TooLarge => format!(
             "UTRAN.CSV が大きすぎるため取り込めませんでした ({} まで)",
@@ -64,11 +80,11 @@ pub fn notice(drive: Option<char>, outcome: &Outcome) -> Notice {
             mib(MAX_BYTES)
         ),
         Outcome::Transient(Transient::Unavailable) => {
-            "サーバーが一時的に使えません。時間をおいてトレイの「今すぐ確認」からやり直してください"
+            "サーバーが一時的に使えません。時間をおいて USB をもう一度挿してください"
                 .to_string()
         }
         Outcome::Transient(Transient::Network) => {
-            "サーバーに接続できませんでした。ネットワークを確認し、トレイの「今すぐ確認」からやり直してください"
+            "サーバーに接続できませんでした。ネットワークを確認して USB をもう一度挿してください"
                 .to_string()
         }
         Outcome::Unknown { status } => {
@@ -123,7 +139,11 @@ mod tests {
             },
         );
         assert_eq!(n.title, "給油データ (E:)");
-        assert_eq!(n.body, "給油データを取り込みました: 追加 12 件 / 既存 3 件");
+        assert_eq!(
+            n.body,
+            "給油データを取り込みました: 追加 12 件 / 既存 3 件。USB は抜いてかまいません"
+        );
+        assert!(n.body.ends_with("。USB は抜いてかまいません"));
     }
 
     #[test]
@@ -132,9 +152,36 @@ mod tests {
             notice(None, &Outcome::Unauthorized),
             Notice {
                 title: "給油データ".into(),
-                body: "資格情報が正しくありません。トレイから再設定してください".into()
+                body:
+                    "資格情報が正しくありません。トレイから再設定し、USB をもう一度挿してください"
+                        .into()
             }
         );
+    }
+
+    #[test]
+    fn read_done_notice() {
+        assert_eq!(
+            read_done(Some('e')),
+            Notice {
+                title: "給油データ (E:)".into(),
+                body: "UTRAN.CSV を読み取りました。USB を抜いてかまいません (送信中)".into()
+            }
+        );
+        assert_eq!(read_done(None).title, "給油データ");
+    }
+
+    #[test]
+    fn failures_after_unplug_ask_to_reinsert() {
+        for o in [
+            Outcome::Transient(Transient::Unavailable),
+            Outcome::Transient(Transient::Network),
+            Outcome::Unauthorized,
+        ] {
+            let body = notice(Some('E'), &o).body;
+            assert!(body.contains("USB をもう一度挿して"), "{body}");
+            assert!(!body.contains("今すぐ確認"), "{body}");
+        }
     }
 
     #[test]
