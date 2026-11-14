@@ -1,8 +1,11 @@
 //! 1 つのドライブの取り込み: `UTRAN.CSV` を探す → サイズ確認 → 送る (一時的な失敗はやり直す)
 //! → 401 なら資格情報を聞き直して 1 回だけ送り直す → ログと通知。
+//!
+//! 読み終えた時点で「USB を抜いてかまいません」と通知し、トレイの色で処理中・結果を出す。
 
 use std::collections::HashSet;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -10,12 +13,13 @@ use fuel_usb_core::drives;
 use fuel_usb_core::message::{self, Notice};
 use fuel_usb_core::outcome::Outcome;
 use fuel_usb_core::retry;
+use fuel_usb_core::tray_state::{self, Tracker};
 use fuel_usb_core::utran;
 use fuel_usb_core::{config::Config, PROBE_ATTEMPTS, PROBE_INTERVAL};
 use reqwest::blocking::Client;
 
 use super::credential::{self, Credential};
-use super::{log, notify, upload};
+use super::{log, notify, tray, upload};
 
 pub struct Context {
     client: Client,
@@ -24,6 +28,8 @@ pub struct Context {
     busy: Mutex<HashSet<char>>,
     /// 資格情報のダイアログは 1 つずつ
     prompt_lock: Mutex<()>,
+    /// トレイの状態 (走っている worker の数と最後の結果)。状態の送信もこのロックの中でやる
+    tray: Mutex<Tracker>,
 }
 
 impl Context {
@@ -33,6 +39,7 @@ impl Context {
             config,
             busy: Mutex::new(HashSet::new()),
             prompt_lock: Mutex::new(()),
+            tray: Mutex::new(Tracker::new()),
         })
     }
 }
@@ -47,10 +54,27 @@ pub fn spawn(ctx: &Arc<Context>, drive: char, manual: bool) {
     }
     let ctx = Arc::clone(ctx);
     thread::spawn(move || {
-        let outcome = handle(&ctx, drive, manual);
-        if let Some(o) = outcome {
-            log::outcome(Some(drive), &o);
-            notify::show(&message::notice(Some(drive), &o));
+        match find(drive, manual) {
+            None => {
+                if manual {
+                    log::outcome(Some(drive), &Outcome::NotFound);
+                    notify::show(&message::notice(Some(drive), &Outcome::NotFound));
+                }
+            }
+            Some(path) => {
+                // 送信もロックの中でやる (複数の worker の Busy と結果が逆順に届かないように)
+                {
+                    let mut t = ctx.tray.lock().unwrap_or_else(|e| e.into_inner());
+                    tray::set_state(t.begin());
+                }
+                let o = run_file(&ctx, drive, &path);
+                log::outcome(Some(drive), &o);
+                notify::show(&message::notice(Some(drive), &o));
+                let mut t = ctx.tray.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(s) = t.end(tray_state::from_outcome(&o)) {
+                    tray::set_state(s);
+                }
+            }
         }
         ctx.busy
             .lock()
@@ -59,8 +83,8 @@ pub fn spawn(ctx: &Arc<Context>, drive: char, manual: bool) {
     });
 }
 
-/// 結果を返す。`None` は通知もログもしない (自動の検知で `UTRAN.CSV` の無い USB だったとき)。
-fn handle(ctx: &Context, drive: char, manual: bool) -> Option<Outcome> {
+/// `UTRAN.CSV` を探す。自動の検知ではマウント途中に備えて何回か探す。
+fn find(drive: char, manual: bool) -> Option<PathBuf> {
     let root = drives::root(drive);
     let attempts = if manual { 1 } else { PROBE_ATTEMPTS };
     let mut path = None;
@@ -73,41 +97,45 @@ fn handle(ctx: &Context, drive: char, manual: bool) -> Option<Outcome> {
             thread::sleep(PROBE_INTERVAL);
         }
     }
-    let Some(path) = path else {
-        return manual.then_some(Outcome::NotFound);
-    };
+    path
+}
 
-    match fs::metadata(&path) {
+/// 見つけた `UTRAN.CSV` を読んで送る。
+fn run_file(ctx: &Context, drive: char, path: &Path) -> Outcome {
+    match fs::metadata(path) {
         Ok(m) => {
             if let Err(bytes) = utran::check_size(m.len()) {
-                return Some(Outcome::FileTooLarge { bytes });
+                return Outcome::FileTooLarge { bytes };
             }
         }
-        Err(_) => return Some(Outcome::ReadFailed),
+        Err(_) => return Outcome::ReadFailed,
     }
-    let Ok(body) = fs::read(&path) else {
-        return Some(Outcome::ReadFailed);
+    let Ok(body) = fs::read(path) else {
+        return Outcome::ReadFailed;
     };
     if let Err(bytes) = utran::check_size(body.len() as u64) {
-        return Some(Outcome::FileTooLarge { bytes });
+        return Outcome::FileTooLarge { bytes };
     }
 
     let cred = match credential::read() {
         Some(c) => c,
         None => match prompt_credentials(ctx, None) {
             Some(c) => c,
-            None => return Some(Outcome::NoCredential),
+            None => return Outcome::NoCredential,
         },
     };
 
+    // 全量をメモリに読んだので、ここから先 USB は要らない (401 の再送でも 2 回目は出さない)
+    notify::show(&message::read_done(Some(drive)));
+
     let outcome = send_with_retry(ctx, &cred, &body);
     if outcome != Outcome::Unauthorized {
-        return Some(outcome);
+        return outcome;
     }
     log::outcome(Some(drive), &outcome);
     match reauth(ctx, &cred) {
-        Some(fresh) => Some(send_with_retry(ctx, &fresh, &body)),
-        None => Some(Outcome::Unauthorized),
+        Some(fresh) => send_with_retry(ctx, &fresh, &body),
+        None => Outcome::Unauthorized,
     }
 }
 
