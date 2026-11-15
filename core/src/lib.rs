@@ -11,6 +11,7 @@
 //! - [`config`] — 設定 (送り先 URL)
 //! - [`credential`] — machine credential の形式の確認
 //! - [`tray_state`] — トレイのアイコンが表す状態 (待機・処理中・取り込み済み・失敗)
+//! - [`update`] — 更新の確認と入れ替え (版の比較・ダウンロード先の制限・sha256・入れ替えの手順)
 
 pub mod config;
 pub mod credential;
@@ -19,6 +20,7 @@ pub mod message;
 pub mod outcome;
 pub mod retry;
 pub mod tray_state;
+pub mod update;
 pub mod utran;
 
 use std::time::Duration;

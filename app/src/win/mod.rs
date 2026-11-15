@@ -7,15 +7,18 @@ mod log;
 mod notify;
 mod process;
 mod tray;
+mod update;
 mod upload;
 
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread;
+use std::time::Instant;
 
 use fuel_usb_core::config::{self, Config};
 use fuel_usb_core::drives::Watcher;
 use fuel_usb_core::message::Notice;
+use fuel_usb_core::update::{CHECK_DELAY, CHECK_INTERVAL};
 use fuel_usb_core::POLL_INTERVAL;
 use windows::core::w;
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
@@ -26,6 +29,7 @@ use windows::Win32::System::Threading::CreateMutexW;
 pub enum Command {
     SetCredentials,
     CheckNow,
+    CheckUpdate,
 }
 
 pub fn run() {
@@ -72,6 +76,7 @@ fn already_running() -> bool {
 }
 
 /// 2 秒おきにリムーバブルドライブを見て、新しいドライブを worker に渡す。メニューの指示もここで受ける。
+/// 最新版の確認は起動 60 秒後と、その後 24 時間ごとに (通知だけ)。
 fn controller(ctx: Arc<process::Context>, rx: mpsc::Receiver<Command>) {
     // 初回起動で資格情報が無ければ聞く
     if credential::read().is_none() {
@@ -79,7 +84,13 @@ fn controller(ctx: Arc<process::Context>, rx: mpsc::Receiver<Command>) {
     }
 
     let mut watcher = Watcher::new();
+    let mut next_update_check = Instant::now() + CHECK_DELAY;
     loop {
+        if Instant::now() >= next_update_check {
+            next_update_check = Instant::now() + CHECK_INTERVAL;
+            let ctx = Arc::clone(&ctx);
+            thread::spawn(move || update::check(&ctx, false));
+        }
         match rx.recv_timeout(POLL_INTERVAL) {
             Ok(Command::CheckNow) => {
                 let all = drives::removable();
@@ -92,6 +103,10 @@ fn controller(ctx: Arc<process::Context>, rx: mpsc::Receiver<Command>) {
                 for d in all {
                     process::spawn(&ctx, d, true);
                 }
+            }
+            Ok(Command::CheckUpdate) => {
+                let ctx = Arc::clone(&ctx);
+                thread::spawn(move || update::check(&ctx, true));
             }
             Ok(Command::SetCredentials) => {
                 let ctx = Arc::clone(&ctx);

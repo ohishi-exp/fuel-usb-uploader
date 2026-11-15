@@ -3,6 +3,7 @@
 //! どちらにも資格情報 (username・password) は渡さない — 引数に無いので出しようがない。
 
 use crate::outcome::{Outcome, Transient};
+use crate::update::Version;
 use crate::utran::MAX_BYTES;
 
 /// トーストの 1 件。
@@ -97,6 +98,45 @@ pub fn notice(drive: Option<char>, outcome: &Outcome) -> Notice {
         }
     };
     Notice { title, body }
+}
+
+/// 更新の通知の題。
+const UPDATE_TITLE: &str = "給油データ USB アップローダー";
+
+fn update_notice(body: String) -> Notice {
+    Notice {
+        title: UPDATE_TITLE.to_string(),
+        body,
+    }
+}
+
+/// 自動の確認で新しい版を見つけたとき (同じ版は 1 回だけ)。
+pub fn update_available(v: Version) -> Notice {
+    update_notice(format!(
+        "新しい版 v{v} があります。トレイの「更新を確認」から更新できます"
+    ))
+}
+
+/// 「更新を確認」で、今の版が最新だったとき。
+pub fn up_to_date(v: Version) -> Notice {
+    update_notice(format!("最新版です (v{v})"))
+}
+
+/// 「更新を確認」で、更新を始めるとき。
+pub fn update_starting(v: Version) -> Notice {
+    update_notice(format!(
+        "v{v} に更新します。このあと Windows の確認が出たら「はい」を押してください"
+    ))
+}
+
+/// 「更新を確認」を押したが、送信中だったとき。
+pub fn update_busy() -> Notice {
+    update_notice("送信中です。終わってからもう一度「更新を確認」を押してください".to_string())
+}
+
+/// 確認・ダウンロード・照合のどれかに失敗したとき。
+pub fn update_failed() -> Notice {
+    update_notice("更新できませんでした。もう一度「更新を確認」を押してください".to_string())
 }
 
 /// ログの 1 行 (改行なし)。日時・ドライブ・結果 (件数・エラーの種類) だけを書く。
@@ -251,6 +291,34 @@ mod tests {
         assert!(notice(None, &Outcome::Unknown { status: 502 })
             .body
             .contains("HTTP 502"));
+    }
+
+    #[test]
+    fn update_notices() {
+        let v = Version(0, 1, 2);
+        let all = [
+            (
+                update_available(v),
+                "新しい版 v0.1.2 があります。トレイの「更新を確認」から更新できます",
+            ),
+            (up_to_date(Version(0, 1, 1)), "最新版です (v0.1.1)"),
+            (
+                update_starting(v),
+                "v0.1.2 に更新します。このあと Windows の確認が出たら「はい」を押してください",
+            ),
+            (
+                update_busy(),
+                "送信中です。終わってからもう一度「更新を確認」を押してください",
+            ),
+            (
+                update_failed(),
+                "更新できませんでした。もう一度「更新を確認」を押してください",
+            ),
+        ];
+        for (n, body) in all {
+            assert_eq!(n.title, "給油データ USB アップローダー");
+            assert_eq!(n.body, body);
+        }
     }
 
     #[test]
