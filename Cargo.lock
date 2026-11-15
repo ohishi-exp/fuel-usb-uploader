@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "fuel-usb-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -230,11 +230,12 @@ dependencies = [
 
 [[package]]
 name = "fuel-usb-uploader"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "fuel-usb-core",
  "reqwest",
+ "ring",
  "tauri-winrt-notification",
  "tray-icon",
  "windows",

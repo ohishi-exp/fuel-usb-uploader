@@ -71,6 +71,17 @@ endpoint = "https://auth.ippoan.org/m/fuel-utran/uploads"
 
 `https://` 以外は受け付けません。書式が誤っていると起動時に通知し、既定の送り先を使います。
 
+## 更新
+
+- タスクトレイのアイコンを右クリック →「更新を確認 (今 v0.1.2)」で、GitHub の最新の Release と比べます
+  - 最新なら「最新版です」と通知します
+  - 新しい版があれば、その MSI を落として sha256 を確かめ、アプリを終えてから入れ替えます。途中で Windows の確認 (UAC) が出たら「はい」を押します。入れ終わると新しい版が起動します (「いいえ」を押すと今の版がそのまま起動し直します)
+  - 送信中は更新しません (「送信中です。…」と通知します)。送信が終わってから押し直します
+  - 確認・ダウンロード・照合のどれかに失敗したら「更新できませんでした。…」と通知し、今の版のまま動き続けます
+- 起動 60 秒後と、その後 24 時間ごとに自動でも確かめます。自動のときは新しい版があることを 1 回通知するだけで、入れ替えはしません
+- 落とすのは `github.com` (と、そこからの転送先 `objects.githubusercontent.com` / `release-assets.githubusercontent.com`) の https だけです。MSI は `%TEMP%` に置きます
+- ログには `update_check` / `update_available` / `update_start` / `update_error` を書きます
+
 ## トラブルのとき
 
 - ログ: `%LOCALAPPDATA%\fuel-usb-uploader\log.txt` (1 MB を超えると `log.old.txt` に回します)

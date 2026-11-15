@@ -42,6 +42,14 @@ impl Context {
             tray: Mutex::new(Tracker::new()),
         })
     }
+
+    /// 送信中の worker があるか (更新でアプリを終える前に確かめる)。
+    pub fn sending(&self) -> bool {
+        self.tray
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_busy()
+    }
 }
 
 /// worker thread でドライブを処理する。`manual` は「今すぐ確認」(探すのは 1 回、見つからなくても通知)。

@@ -78,6 +78,11 @@ impl Tracker {
         self.last = result;
         (self.active == 0).then_some(self.last)
     }
+
+    /// 送信中の worker があるか (更新でアプリを終える前に確かめる)。
+    pub fn is_busy(&self) -> bool {
+        self.active > 0
+    }
 }
 
 #[cfg(test)]
@@ -145,6 +150,19 @@ mod tests {
         t.begin();
         assert_eq!(t.end(TrayState::Done), None);
         assert_eq!(t.end(TrayState::Failed), Some(TrayState::Failed));
+    }
+
+    #[test]
+    fn tracker_is_busy() {
+        let mut t = Tracker::new();
+        assert!(!t.is_busy());
+        t.begin();
+        t.begin();
+        assert!(t.is_busy());
+        t.end(TrayState::Done);
+        assert!(t.is_busy());
+        t.end(TrayState::Done);
+        assert!(!t.is_busy());
     }
 
     #[test]

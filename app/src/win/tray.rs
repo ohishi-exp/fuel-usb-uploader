@@ -1,4 +1,4 @@
-//! トレイ アイコンとメニュー (「資格情報を設定」「今すぐ確認」「終了」)、main thread のメッセージループ。
+//! トレイ アイコンとメニュー (「資格情報を設定」「今すぐ確認」「更新を確認」「終了」)、main thread のメッセージループ。
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
@@ -42,6 +42,15 @@ pub fn set_state(s: TrayState) {
         unsafe { PostThreadMessageW(main_thread, WM_TRAY_STATE, WPARAM(s as usize), LPARAM(0)) };
 }
 
+/// アプリを終える (どの thread からでも呼べる。main thread のループが WM_QUIT で抜ける)。
+pub fn quit() {
+    let main_thread = MAIN_THREAD.load(Ordering::Acquire);
+    if main_thread == 0 {
+        return;
+    }
+    let _ = unsafe { PostThreadMessageW(main_thread, WM_QUIT, WPARAM(0), LPARAM(0)) };
+}
+
 /// 32x32 のアイコン (`bg` の丸に白いしずく形)。画像ファイルを持たずに描く。
 fn icon(bg: [u8; 3]) -> Option<Icon> {
     const N: u32 = 32;
@@ -72,13 +81,19 @@ pub fn run(tx: Sender<Command>) {
     let menu = Menu::new();
     let set_cred = MenuItem::new("資格情報を設定", true, None);
     let check_now = MenuItem::new("今すぐ確認", true, None);
-    let quit = MenuItem::new("終了", true, None);
+    let check_update = MenuItem::new(
+        concat!("更新を確認 (今 v", env!("CARGO_PKG_VERSION"), ")"),
+        true,
+        None,
+    );
+    let quit_item = MenuItem::new("終了", true, None);
     if menu
         .append_items(&[
             &set_cred,
             &check_now,
+            &check_update,
             &PredefinedMenuItem::separator(),
-            &quit,
+            &quit_item,
         ])
         .is_err()
     {
@@ -100,18 +115,21 @@ pub fn run(tx: Sender<Command>) {
 
     let main_thread = unsafe { GetCurrentThreadId() };
     MAIN_THREAD.store(main_thread, Ordering::Release);
-    let (set_id, check_id, quit_id) = (
+    let (set_id, check_id, update_id, quit_id) = (
         set_cred.id().clone(),
         check_now.id().clone(),
-        quit.id().clone(),
+        check_update.id().clone(),
+        quit_item.id().clone(),
     );
     MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
         if e.id == set_id {
             let _ = tx.send(Command::SetCredentials);
         } else if e.id == check_id {
             let _ = tx.send(Command::CheckNow);
+        } else if e.id == update_id {
+            let _ = tx.send(Command::CheckUpdate);
         } else if e.id == quit_id {
-            let _ = unsafe { PostThreadMessageW(main_thread, WM_QUIT, WPARAM(0), LPARAM(0)) };
+            quit();
         }
     }));
 
