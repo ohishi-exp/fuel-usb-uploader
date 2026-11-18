@@ -29,6 +29,7 @@ use windows::Win32::System::Threading::CreateMutexW;
 pub enum Command {
     SetCredentials,
     CheckNow,
+    ClearStatus,
     CheckUpdate,
 }
 
@@ -104,6 +105,7 @@ fn controller(ctx: Arc<process::Context>, rx: mpsc::Receiver<Command>) {
                     process::spawn(&ctx, d, true);
                 }
             }
+            Ok(Command::ClearStatus) => ctx.clear_status(),
             Ok(Command::CheckUpdate) => {
                 let ctx = Arc::clone(&ctx);
                 thread::spawn(move || update::check(&ctx, true));

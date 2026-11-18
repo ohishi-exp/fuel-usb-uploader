@@ -83,6 +83,15 @@ impl Tracker {
     pub fn is_busy(&self) -> bool {
         self.active > 0
     }
+
+    /// トレイの「表示を消す」: 結果 (緑・赤) を消して待機 (青) に戻す。送信中なら何もしない (`None`)。
+    pub fn clear(&mut self) -> Option<TrayState> {
+        if self.is_busy() {
+            return None;
+        }
+        self.last = TrayState::Idle;
+        Some(TrayState::Idle)
+    }
 }
 
 #[cfg(test)]
@@ -162,6 +171,25 @@ mod tests {
         assert!(t.is_busy());
         t.end(TrayState::Done);
         assert!(!t.is_busy());
+    }
+
+    #[test]
+    fn tracker_clear() {
+        let mut t = Tracker::new();
+        t.begin();
+        assert_eq!(t.end(TrayState::Failed), Some(TrayState::Failed));
+        assert_eq!(t.clear(), Some(TrayState::Idle));
+        // 送信中は消さない (終わったらその結果を出す)
+        t.begin();
+        assert_eq!(t.clear(), None);
+        assert_eq!(t.end(TrayState::Done), Some(TrayState::Done));
+        // 2 本が重なって片方だけ終わった後も、まだ消さない
+        t.begin();
+        t.begin();
+        t.end(TrayState::Failed);
+        assert_eq!(t.clear(), None);
+        assert_eq!(t.end(TrayState::Done), Some(TrayState::Done));
+        assert_eq!(t.clear(), Some(TrayState::Idle));
     }
 
     #[test]
