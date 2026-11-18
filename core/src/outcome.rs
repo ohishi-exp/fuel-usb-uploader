@@ -1,7 +1,9 @@
 //! 1 回の取り込みの結果と、サーバーの応答の解釈。
 //!
 //! 応答の仕様 (auth-worker の machine-relay → rust-fuel-worker の `/machine/fuel-utran/uploads`):
-//! - 200 `{"ok":true,"key":…,"inserted":N,"skipped":N,"latest_start":…}`
+//! - 200 `{"ok":true,"key":…,"inserted":N,"skipped":N,"latest_start":{"datetime":…,"fuel_card_id":N}|null}`
+//!   (使うのは `ok`・`inserted`・`skipped` だけ。ほかの欄は形を問わず読み飛ばす — 使わない欄の形が
+//!   食い違って、取り込めたのに失敗と通知していたため)
 //! - 400 CSV が読めない (`{"ok":false,"error":"csv","line":N,"reason":…}` / `{"error":"empty"}` など)
 //! - 401 資格情報の誤り (`{"error":"Unauthorized"}` + `WWW-Authenticate: Basic`)
 //! - 413 `too_large` (5 MB 超)
@@ -22,11 +24,7 @@ pub enum Transient {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// 200: 取り込めた
-    Imported {
-        inserted: u64,
-        skipped: u64,
-        latest_start: Option<String>,
-    },
+    Imported { inserted: u64, skipped: u64 },
     /// 400: CSV の誤り
     BadCsv {
         error: String,
@@ -57,8 +55,6 @@ struct OkBody {
     ok: bool,
     inserted: u64,
     skipped: u64,
-    #[serde(default)]
-    latest_start: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -78,7 +74,6 @@ pub fn interpret(status: u16, body: &str) -> Outcome {
             Ok(b) if b.ok => Outcome::Imported {
                 inserted: b.inserted,
                 skipped: b.skipped,
-                latest_start: b.latest_start,
             },
             _ => Outcome::Unknown { status },
         },
@@ -132,13 +127,13 @@ mod tests {
 
     #[test]
     fn ok_200() {
-        let body = r#"{"inserted":12,"key":"utran/x.csv","latest_start":"2026-10-01 08:00:00","ok":true,"skipped":3}"#;
+        // rust-fuel-worker の実際の応答 (latest_start はオブジェクト)
+        let body = r#"{"inserted":12,"key":"utran/x.csv","latest_start":{"datetime":"2023-12-20 07:33:00","fuel_card_id":9999},"ok":true,"skipped":3}"#;
         assert_eq!(
             interpret(200, body),
             Outcome::Imported {
                 inserted: 12,
-                skipped: 3,
-                latest_start: Some("2026-10-01 08:00:00".into())
+                skipped: 3
             }
         );
         let body =
@@ -147,8 +142,16 @@ mod tests {
             interpret(200, body),
             Outcome::Imported {
                 inserted: 0,
-                skipped: 5,
-                latest_start: None
+                skipped: 5
+            }
+        );
+        // 使わない欄は形が変わっても、無くても読める
+        let body = r#"{"inserted":1,"latest_start":"2026-10-01 08:00:00","ok":true,"skipped":0}"#;
+        assert_eq!(
+            interpret(200, body),
+            Outcome::Imported {
+                inserted: 1,
+                skipped: 0
             }
         );
     }

@@ -94,8 +94,7 @@ mod tests {
         assert_eq!(
             super::from_outcome(&Outcome::Imported {
                 inserted: 1,
-                skipped: 0,
-                latest_start: None
+                skipped: 0
             }),
             TrayState::Done
         );

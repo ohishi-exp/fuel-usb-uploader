@@ -48,7 +48,6 @@ mod tests {
         Outcome::Imported {
             inserted: 1,
             skipped: 0,
-            latest_start: None,
         }
     }
 
