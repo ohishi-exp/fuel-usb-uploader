@@ -175,7 +175,6 @@ mod tests {
             &Outcome::Imported {
                 inserted: 12,
                 skipped: 3,
-                latest_start: None,
             },
         );
         assert_eq!(n.title, "給油データ (E:)");
@@ -330,8 +329,7 @@ mod tests {
                 Some('e'),
                 &Outcome::Imported {
                     inserted: 12,
-                    skipped: 3,
-                    latest_start: Some("x".into())
+                    skipped: 3
                 }
             ),
             "2026-10-18 12:00:00\tE:\timported inserted=12 skipped=3"
