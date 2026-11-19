@@ -50,6 +50,14 @@ impl Context {
             .unwrap_or_else(|e| e.into_inner())
             .is_busy()
     }
+
+    /// トレイの「表示を消す」: 送信中でなければ待機 (青) に戻す。状態の送信はロックの中でやる。
+    pub fn clear_status(&self) {
+        let mut t = self.tray.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = t.clear() {
+            tray::set_state(s);
+        }
+    }
 }
 
 /// worker thread でドライブを処理する。`manual` は「今すぐ確認」(探すのは 1 回、見つからなくても通知)。

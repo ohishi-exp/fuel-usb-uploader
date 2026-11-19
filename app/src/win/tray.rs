@@ -1,4 +1,4 @@
-//! トレイ アイコンとメニュー (「資格情報を設定」「今すぐ確認」「更新を確認」「終了」)、main thread のメッセージループ。
+//! トレイ アイコンとメニュー (「資格情報を設定」「今すぐ確認」「表示を消す」「更新を確認」「終了」)、main thread のメッセージループ。
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
@@ -81,6 +81,8 @@ pub fn run(tx: Sender<Command>) {
     let menu = Menu::new();
     let set_cred = MenuItem::new("資格情報を設定", true, None);
     let check_now = MenuItem::new("今すぐ確認", true, None);
+    // 結果の色 (緑・赤) は次の取り込みまで残るので、見終えたら青に戻せるように
+    let clear_status = MenuItem::new("表示を消す", true, None);
     let check_update = MenuItem::new(
         concat!("更新を確認 (今 v", env!("CARGO_PKG_VERSION"), ")"),
         true,
@@ -91,6 +93,7 @@ pub fn run(tx: Sender<Command>) {
         .append_items(&[
             &set_cred,
             &check_now,
+            &clear_status,
             &check_update,
             &PredefinedMenuItem::separator(),
             &quit_item,
@@ -115,9 +118,10 @@ pub fn run(tx: Sender<Command>) {
 
     let main_thread = unsafe { GetCurrentThreadId() };
     MAIN_THREAD.store(main_thread, Ordering::Release);
-    let (set_id, check_id, update_id, quit_id) = (
+    let (set_id, check_id, clear_id, update_id, quit_id) = (
         set_cred.id().clone(),
         check_now.id().clone(),
+        clear_status.id().clone(),
         check_update.id().clone(),
         quit_item.id().clone(),
     );
@@ -126,6 +130,8 @@ pub fn run(tx: Sender<Command>) {
             let _ = tx.send(Command::SetCredentials);
         } else if e.id == check_id {
             let _ = tx.send(Command::CheckNow);
+        } else if e.id == clear_id {
+            let _ = tx.send(Command::ClearStatus);
         } else if e.id == update_id {
             let _ = tx.send(Command::CheckUpdate);
         } else if e.id == quit_id {
